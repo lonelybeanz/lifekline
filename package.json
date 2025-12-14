@@ -12,7 +12,9 @@
     "lucide-react": "^0.561.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^2.12.7"
+    "recharts": "^2.12.7",
+    "lunar-javascript": "^1.6.11",
+    "@google/genai": "^1.33.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

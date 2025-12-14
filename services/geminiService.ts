@@ -1,6 +1,9 @@
 
+import { GoogleGenAI, Type } from "@google/genai";
 import { UserInput, LifeDestinyResult, Gender } from "../types";
 import { BAZI_SYSTEM_INSTRUCTION } from "../constants";
+
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helper to determine stem polarity
 const getStemPolarity = (pillar: string): 'YANG' | 'YIN' => {
@@ -15,21 +18,6 @@ const getStemPolarity = (pillar: string): 'YANG' | 'YIN' => {
 };
 
 export const generateLifeAnalysis = async (input: UserInput): Promise<LifeDestinyResult> => {
-  
-  const { apiKey, apiBaseUrl, modelName } = input;
-
-  if (!apiKey || !apiKey.trim()) {
-    throw new Error("请在表单中填写有效的 API Key");
-  }
-  if (!apiBaseUrl || !apiBaseUrl.trim()) {
-    throw new Error("请在表单中填写有效的 API Base URL");
-  }
-
-  // Remove trailing slash if present
-  const cleanBaseUrl = apiBaseUrl.replace(/\/+$/, "");
-  // Use user provided model name or fallback
-  const targetModel = modelName && modelName.trim() ? modelName.trim() : "gemini-3-pro-preview";
-
   const genderStr = input.gender === Gender.MALE ? '男 (乾造)' : '女 (坤造)';
   const startAgeInt = parseInt(input.startAge) || 1;
   
@@ -95,41 +83,32 @@ export const generateLifeAnalysis = async (input: UserInput): Promise<LifeDestin
   `;
 
   try {
-    const response = await fetch(`${cleanBaseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: targetModel, 
-        messages: [
-          { role: "system", content: BAZI_SYSTEM_INSTRUCTION },
-          { role: "user", content: userPrompt }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7
-      })
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview', // Using Pro for complex BaZi reasoning
+      contents: userPrompt,
+      config: {
+        systemInstruction: BAZI_SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
+        // Using loose JSON validation by not strictly defining the schema for KLinePoint array to allow flexibility in the model's output structure, 
+        // as long as it matches the requested format in the prompt/system instruction.
+      }
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`API 请求失败: ${response.status} - ${errText}`);
-    }
-
-    const jsonResult = await response.json();
-    const content = jsonResult.choices?.[0]?.message?.content;
-
-    if (!content) {
+    const text = response.text;
+    if (!text) {
       throw new Error("模型未返回任何内容。");
     }
 
-    // 解析 JSON
-    const data = JSON.parse(content);
+    const data = JSON.parse(text);
 
-    // 简单校验数据完整性
+    // Validate data structure
     if (!data.chartPoints || !Array.isArray(data.chartPoints)) {
-      throw new Error("模型返回的数据格式不正确（缺失 chartPoints）。");
+       // Fallback or error handling
+       if (data.chartData && Array.isArray(data.chartData)) {
+           data.chartPoints = data.chartData; // Handle potential naming mismatch from model
+       } else {
+           throw new Error("模型返回的数据格式不正确（缺失 chartPoints）。");
+       }
     }
 
     return {
@@ -150,8 +129,9 @@ export const generateLifeAnalysis = async (input: UserInput): Promise<LifeDestin
         familyScore: data.familyScore || 5,
       },
     };
+
   } catch (error) {
-    console.error("Gemini/OpenAI API Error:", error);
+    console.error("Gemini API Error:", error);
     throw error;
   }
 };
